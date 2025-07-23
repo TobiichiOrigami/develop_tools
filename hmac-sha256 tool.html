@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HMAC-SHA256 計算器</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.0.0/crypto-js.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin-top: 50px;
+        }
+        #result {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>時間戳 HMAC-SHA256 計算器</h1>
+    <label for="secretKey">Secret Key:</label>
+    <input type="text" id="secretKey" value="test-client-key">
+    <br><br>
+    <button id="generate">生成 HMAC-SHA256</button>
+    <div id="result"></div>
+
+    <script>
+        document.getElementById('generate').addEventListener('click', function() {
+            // 獲取當前 Unix 時間戳
+            const timestamp = Math.floor(Date.now() / 1000);
+            const secretKey = document.getElementById('secretKey').value;
+
+            // 計算 HMACSHA256
+            const hmac = CryptoJS.HmacSHA256(timestamp.toString(), secretKey);
+            const hmacBase64 = CryptoJS.enc.Base64.stringify(hmac);
+
+            // 顯示結果
+            document.getElementById('result').innerHTML = `
+                <p>Unix 時間戳: ${timestamp}</p>
+                <p>HMAC-SHA256 (Base64): ${hmacBase64}</p>
+            `;
+        });
+    </script>
+</body>
+</html>

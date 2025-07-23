@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ResultSet RowMap Generator</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      line-height: 1.6;
+    }
+
+    textarea,
+    pre {
+      width: 100%;
+      font-family: monospace;
+    }
+
+    textarea {
+      height: 150px;
+    }
+
+    pre {
+      background: #f4f4f4;
+      padding: 10px;
+      border: 1px solid #ddd;
+      white-space: pre-wrap;
+    }
+
+    button {
+      padding: 10px 15px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>ResultSet RowMap Generator</h1>
+  <p>在下方文字框中輸入類別的屬性，每行一個，格式為：<code>val name: Type</code>。按下「生成」按鈕後，結果會顯示在下方。</p>
+  <textarea id="input" placeholder="輸入類別的屬性，例如：&#10;val id: Int&#10;val createdAt: ZonedDateTime"></textarea>
+  <button onclick="generate()">生成</button>
+  <h2>生成的程式碼：</h2>
+  <pre id="output"></pre>
+
+  <script>
+    function generate() {
+      const input = document.getElementById('input').value.trim();
+      const output = document.getElementById('output');
+      const zoneId = "Asia/Taipei"; // 時區設定
+
+      if (!input) {
+        output.textContent = "// 請輸入屬性資料！";
+        return;
+      }
+
+      const lines = input.split("\n");
+      const results = lines.map(line => {
+        const parts = line.split(":").map(part => part.trim());
+        if (parts.length !== 2) {
+          return `// 無法解析：${line}`;
+        }
+
+        const fieldName = parts[0].replace("val ", "");
+        const fieldType = parts[1].replace(",", "");
+        const columnName = fieldName.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase();
+
+        switch (fieldType) {
+          case "Int":
+            return `${fieldName} = rs.getInt("${columnName}")`;
+          case "Int?":
+            return `${fieldName} = rs.getInt("${columnName}").let { if (rs.wasNull()) null else it }`;
+          case "String":
+            return `${fieldName} = rs.getString("${columnName}")`;
+          case "Boolean":
+            return `${fieldName} = rs.getBoolean("${columnName}")`;
+          case "ZonedDateTime":
+            return `${fieldName} = rs.getTimestamp("${columnName}").toInstant().atZone(ZoneId.of(timeZone))`;
+          case "ZonedDateTime?":
+            return `${fieldName} = rs.getTimestamp("${columnName}")?.toInstant()?.atZone(ZoneId.of(timeZone))`;
+          case "Byte":
+            return `${fieldName} = rs.getByte("${columnName}")`;
+          default:
+            return `// 不支援的型態：${fieldName}: ${fieldType}`;
+        }
+      });
+
+      output.textContent = results.join(",\n");
+    }
+  </script>
+</body>
+
+</html>
