@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HMAC-SHA256 計算器</title>
+    <title>HMAC 計算器</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.0.0/crypto-js.min.js"></script>
     <style>
         body {
@@ -17,27 +17,39 @@
     </style>
 </head>
 <body>
-    <h1>時間戳 HMAC-SHA256 計算器</h1>
+    <h1>時間戳 HMAC 計算器</h1>
+
     <label for="secretKey">Secret Key:</label>
-    <input type="text" id="secretKey" value="test-client-key">
-    <br><br>
-    <button id="generate">生成 HMAC-SHA256</button>
+    <input type="text" id="secretKey" value="test-client-key"><br><br>
+
+    <label for="algorithm">選擇演算法:</label>
+    <select id="algorithm">
+        <option value="sha256">HMAC-SHA256</option>
+        <option value="sha1">HMAC-SHA1</option>
+    </select><br><br>
+
+    <button id="generate">生成 HMAC</button>
+
     <div id="result"></div>
 
     <script>
         document.getElementById('generate').addEventListener('click', function() {
-            // 獲取當前 Unix 時間戳
             const timestamp = Math.floor(Date.now() / 1000);
             const secretKey = document.getElementById('secretKey').value;
+            const algorithm = document.getElementById('algorithm').value;
 
-            // 計算 HMACSHA256
-            const hmac = CryptoJS.HmacSHA256(timestamp.toString(), secretKey);
+            let hmac;
+            if (algorithm === 'sha1') {
+                hmac = CryptoJS.HmacSHA1(timestamp.toString(), secretKey);
+            } else {
+                hmac = CryptoJS.HmacSHA256(timestamp.toString(), secretKey);
+            }
+
             const hmacBase64 = CryptoJS.enc.Base64.stringify(hmac);
 
-            // 顯示結果
             document.getElementById('result').innerHTML = `
                 <p>Unix 時間戳: ${timestamp}</p>
-                <p>HMAC-SHA256 (Base64): ${hmacBase64}</p>
+                <p>HMAC-${algorithm.toUpperCase()} (Base64): ${hmacBase64}</p>
             `;
         });
     </script>
