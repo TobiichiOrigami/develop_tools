@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Kotlin 日誌佔位符轉換器</title>
+  <style>
+    body{font-family:Inter,ui-sans-serif,system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; padding:18px; background:#f6f8fa}
+    .card{background:white;border-radius:12px;padding:18px;box-shadow:0 6px 18px rgba(18,38,63,0.06);max-width:980px;margin:12px auto}
+    textarea{width:100%;height:140px;padding:12px;border-radius:8px;border:1px solid #e6edf3;resize:vertical;font-family:monospace}
+    .row{display:flex;gap:12px;margin-top:8px}
+    .btn{padding:8px 12px;border-radius:8px;border:0;cursor:pointer}
+    .btn-primary{background:#2563eb;color:white}
+    .btn-plain{background:#eef2ff}
+    .hint{color:#6b7280;margin-top:8px;font-size:14px}
+    pre.output{background:#0b1220;color:#e6f0ff;padding:12px;border-radius:8px;overflow:auto}
+    label{font-weight:600;margin-bottom:6px;display:block}
+    .flex{display:flex;gap:8px}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>Kotlin 日誌佔位符轉換器</h2>
+    <p class="hint">把含有 Kotlin 字串插值（例如 <code>"msg: $var"</code> 或 <code>"msg: ${expr}"</code>）或以 <code>+</code> 串接的日誌呼叫，轉成使用 SLF4J placeholder 的寫法（<code>{}</code>）。</p>
+
+    <label for="input">輸入原始日誌程式碼（可多行）</label>
+    <textarea id="input" placeholder='例如: log.info("message: ${errorMessage}")\nlog.debug("user=" + userId + " logged in")'></textarea>
+
+    <div class="row">
+      <button id="convert" class="btn btn-primary">轉換</button>
+      <button id="clear" class="btn btn-plain">清除</button>
+      <button id="copy" class="btn">複製結果</button>
+      <button id="example" class="btn">載入範例</button>
+    </div>
+
+    <label for="output" style="margin-top:12px">轉換後結果</label>
+    <pre id="output" class="output" tabindex="0"></pre>
+
+    <p class="hint">注意：此工具為簡易轉換器，支援常見情境（字串插值 `$var` / `${expr}`、以 `+` 串接的簡單表達式）。遇到非常複雜的字串運算或包含字面上的 `$`、轉義或 multi-line raw strings（三引號）時，請人工檢查。</p>
+  </div>
+
+<script>
+(function(){
+  const input = document.getElementById('input')
+  const output = document.getElementById('output')
+  const btn = document.getElementById('convert')
+  const clear = document.getElementById('clear')
+  const copy = document.getElementById('copy')
+  const example = document.getElementById('example')
+
+  example.addEventListener('click', ()=>{
+    input.value = `log.info("message: ${errorMessage}")\nlog.debug("user=$userId at ${Instant.now()}")\nlog.warn("failed: " + cause.getMessage() + ", code=" + code)\nlog.info("no placeholders here")`
+  })
+
+  clear.addEventListener('click', ()=>{input.value=''; output.textContent='';})
+  copy.addEventListener('click', ()=>{navigator.clipboard.writeText(output.textContent).then(()=>alert('已複製結果'))})
+
+  function isQuote(ch){return ch === '"' || ch === "'"}
+
+  // 解析一整行 log 呼叫並嘗試轉換
+  function convertLine(line){
+    // 找 log.<level>( 的位置
+    const logCallMatch = line.match(/\b(log\.[a-zA-Z0-9_]+)\s*\(([\s\S]*)\)\s*;?\s*$/)
+    if(!logCallMatch) return line // 若不是形如 log.xxx(...) 則直接回傳原樣
+
+    const callPrefix = logCallMatch[1] // e.g. log.info
+    let argsContent = logCallMatch[2].trim() // 內部參數
+
+    // 嘗試判斷 argsContent 是否為多個參數（已有 placeholder），若已有 {} 並且後面還有參數，不變
+    if(/\{\}/.test(argsContent) && /,/.test(argsContent)) {
+      return line // 已經似乎使用 placeholder
+    }
+
+    // 處理以 + 串接的情況：合併為單一字串與參數
+    // 分割 top-level '+'（粗略），不處理括號內含 + 的複雜情形
+    function splitTopLevelPlus(s){
+      const parts = []
+      let cur = ''
+      let depth = 0
+      let inSingle=false, inDouble=false
+      for(let i=0;i<s.length;i++){
+        const ch = s[i]
+        if(ch === '"' && !inSingle){ inDouble = !inDouble; }
+        else if(ch === "'" && !inDouble){ inSingle = !inSingle; }
+        else if(!inDouble && !inSingle){
+          if(ch === '(') depth++
+          else if(ch === ')') depth--
+        }
+        if(ch === '+' && depth===0 && !inSingle && !inDouble){
+          parts.push(cur.trim())
+          cur = ''
+        } else cur += ch
+      }
+      if(cur.trim() !== '') parts.push(cur.trim())
+      return parts
+    }
+
+    function hasTopLevelComma(s){
+      let depth = 0
+      let inSingle = false, inDouble = false
+      for(let i=0;i<s.length;i++){
+        const ch = s[i]
+        if(ch === '"' && !inSingle){ inDouble = !inDouble; }
+        else if(ch === "'" && !inDouble){ inSingle = !inSingle; }
+        else if(!inDouble && !inSingle){
+          if(ch === '(') depth++
+          else if(ch === ')') depth--
+          else if(ch === ',' && depth === 0) return true
+        }
+      }
+      return false
+    }
+
+
+    // 如果只有一個參數且是 string 或 帶插值的 string -> handle interpolation
+    // 或者是多段用 + 串接 -> 合併
+    let pieces = splitTopLevelPlus(argsContent)
+
+    // 如果原始呼叫本身就有多個帶逗號的參數，我不嘗試改變（保守策略）
+    if(pieces.length === 1 && hasTopLevelComma(pieces[0])){
+      // 可能已經有多個參數 (例如: "msg {}", a, b)
+      return line
+    }
+
+    // 將每一段判定為字串常量或表達式
+    const placeholderParts = []
+    const extraArgs = []
+
+    function unquoteStringLiteral(s){
+      s = s.trim()
+      if((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))){
+        // 移除頭尾引號，但保留內容的 escape
+        return s.slice(1,-1)
+      }
+      return null
+    }
+
+    for(const part of pieces){
+      const lit = unquoteStringLiteral(part)
+      if(lit !== null){
+        // 這是一個字串常量，可能包含 Kotlin 插值像 $var 或 ${expr}
+        // 找出所有 ${...} 與 $var
+        let result = ''
+        let lastIndex = 0
+        const regex = /\$\{([^}]+)\}|\$([A-Za-z_][A-Za-z0-9_]*)/g
+        let m
+        while((m = regex.exec(lit)) !== null){
+          result += lit.slice(lastIndex, m.index)
+          // 加上 placeholder
+          result += '{}'
+          const expr = m[1] || m[2]
+          extraArgs.push(expr.trim())
+          lastIndex = m.index + m[0].length
+        }
+        result += lit.slice(lastIndex)
+        placeholderParts.push(result)
+      } else {
+        // 不是字串常量，當作表達式：放一個 placeholder 並把整段作為 argument
+        placeholderParts.push('{}')
+        extraArgs.push(part)
+      }
+    }
+
+    // 合併 placeholderParts 成 single string
+    const merged = placeholderParts.join('')
+    // escape backslashes and double quotes inside merged
+    const escaped = merged.replace(/\\/g,'\\\\').replace(/"/g,'\\"')
+    const finalString = '"' + escaped + '"'
+
+    const argsList = extraArgs.map(a=>a.trim()).join(', ')
+    const reconstructed = argsList.length > 0 ? `${callPrefix}(${finalString}, ${argsList})` : `${callPrefix}(${finalString})`
+
+    // 若原本有結尾分號，帶回
+    const semicolon = /;\s*$/.test(line) ? ';' : ''
+    return reconstructed + semicolon
+  }
+
+  function convertAll(text){
+    const lines = text.split(/\r?\n/)
+    const out = lines.map(l=>convertLine(l))
+    return out.join('\n')
+  }
+
+  btn.addEventListener('click', ()=>{
+    try{
+      const res = convertAll(input.value)
+      output.textContent = res
+    }catch(e){
+      output.textContent = '轉換發生錯誤: ' + e.message
+    }
+  })
+
+  // 也支援 Ctrl+Enter 做轉換
+  input.addEventListener('keydown', (e)=>{
+    if(e.key === 'Enter' && (e.ctrlKey || e.metaKey)){
+      btn.click();
+      e.preventDefault()
+    }
+  })
+
+})();
+</script>
+</body>
+</html>
